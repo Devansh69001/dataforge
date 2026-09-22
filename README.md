@@ -360,17 +360,17 @@ Identical workload on identical inputs — cast, dedup via window, rule checks, 
 
 | Scale | Rows in | pandas | PySpark | pandas rows/s | PySpark rows/s |
 |---|---|---|---|---|---|
-| ×1 | 220,254 | **1.23 s** | 3.88 s | 179,068 | 56,766 |
-| ×4 | 881,016 | **4.03 s** | 4.42 s | 218,614 | 199,324 |
-| ×10 | 2,202,540 | 10.30 s | **6.54 s** | 213,838 | 336,779 |
+| ×1 | 220,254 | **1.08 s** | 3.88 s | 203,938 | 56,766 |
+| ×4 | 881,016 | **3.75 s** | 5.04 s | 234,937 | 174,804 |
+| ×10 | 2,202,540 | 10.72 s | **8.73 s** | 205,460 | 252,295 |
 
-Spark session start-up: 6.59 s (excluded from the table). Both engines produced identical outputs (same reject count, same 153,436 output rows) — the benchmark asserts this.
+Spark session start-up: 4.75 s (excluded from the table). Both engines produced identical outputs (same reject count, same 153,436 output rows) — the benchmark asserts this.
 
-**Reading:** pandas wins below ~1 M rows, where Spark's JVM and scheduling overhead dominates. The crossover is near 900 K rows; at 2.2 M rows Spark is **1.6× faster** and its throughput is still rising while pandas' is flat. The real argument is the next order of magnitude: pandas is bounded by one machine's RAM, while the same Spark code runs unchanged against a cluster. For this project's honest scale, Spark is chosen for the *processing model* (partition-aware merges, windows over full history, horizontal scale), not for a speed win at 200 K rows.
+**Reading:** pandas wins below ~1 M rows, where Spark's JVM and scheduling overhead dominates. The crossover is near 1 M rows; at 2.2 M rows Spark is **1.23× faster** and its throughput is still rising while pandas' is flat. The real argument is the next order of magnitude: pandas is bounded by one machine's RAM, while the same Spark code runs unchanged against a cluster. For this project's honest scale, Spark is chosen for the *processing model* (partition-aware merges, windows over full history, horizontal scale), not for a speed win at 200 K rows.
 
 ### Test suite
 
-41 tests: **40 passed, 1 skipped** (Airflow DagBag — Airflow only runs in the Docker image) in **368 s**, including the full initial → incremental → rerun end-to-end run against an isolated database.
+41 tests: **40 passed, 1 skipped** (Airflow DagBag — Airflow only runs in the Docker image) in **355 s**, including the full initial → incremental → rerun end-to-end run against an isolated database.
 
 ## Failure cases
 
