@@ -1,0 +1,17 @@
+data/
+!data/.gitkeep
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+.local/
+.git/
+.idea/
+.vscode/
+benchmarks/results/*.json

@@ -1,0 +1,60 @@
+# --- secrets / local config ---
+.env
+.env.*
+!.env.example
+dbt/profiles.yml.local
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- generated data (regenerate with scripts/generate_data.py) ---
+data/
+!data/.gitkeep
+benchmarks/results/*.json
+!benchmarks/results/.gitkeep
+
+# --- spark / hadoop ---
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+_SUCCESS
+
+# --- airflow local metadata ---
+airflow/logs/
+airflow/airflow.db
+airflow/airflow.cfg
+airflow/webserver_config.py
+airflow/standalone_admin_password.txt
+logs/
+
+# --- dbt ---
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# --- local postgres dev cluster ---
+.local/
+
+# --- node ---
+node_modules/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
