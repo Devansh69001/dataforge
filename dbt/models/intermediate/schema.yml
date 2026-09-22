@@ -1,0 +1,21 @@
+version: 2
+models:
+  - name: int_revenue_lines
+    description: Revenue-bearing order lines joined to product hierarchy and region.
+    columns:
+      - name: order_item_key
+        tests: [unique, not_null]
+      - name: line_total_usd
+        tests: [non_negative]
+  - name: int_product_period_sales
+    columns:
+      - name: product_key
+        tests: [unique, not_null]
+  - name: int_customer_orders
+    columns:
+      - name: customer_key
+        tests: [unique, not_null]
+  - name: int_shipping_enriched
+    columns:
+      - name: shipment_key
+        tests: [unique, not_null]

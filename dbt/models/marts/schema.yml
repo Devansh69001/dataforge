@@ -1,0 +1,97 @@
+version: 2
+
+models:
+  - name: daily_sales_summary
+    description: >
+      One row per calendar day with orders, revenue (USD, revenue-state orders only), margin,
+      units, discounts, refunds and customer counts. Incremental with a look-back window.
+    columns:
+      - name: sales_date
+        tests: [unique, not_null]
+      - name: revenue_usd
+        tests: [not_null, non_negative]
+      - name: revenue_orders
+        tests: [non_negative]
+
+  - name: monthly_revenue_summary
+    description: Monthly roll-up of daily_sales_summary with active customers and MoM growth.
+    columns:
+      - name: year_month
+        tests: [unique, not_null]
+      - name: revenue_usd
+        tests: [not_null, non_negative]
+
+  - name: customer_lifetime_value
+    description: Lifetime revenue, recency and lifecycle stage per customer.
+    columns:
+      - name: customer_key
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                  to: ref('stg_customers')
+                  field: customer_key
+      - name: lifetime_revenue_usd
+        tests: [non_negative]
+      - name: lifecycle_stage
+        tests:
+          - accepted_values:
+              arguments:
+                  values: [never_purchased, active, at_risk, churned]
+
+  - name: product_sales_metrics
+    description: Per-product revenue, units, 90-day trend, declining flag and 30-day velocity.
+    columns:
+      - name: product_key
+        tests: [unique, not_null]
+      - name: revenue_usd
+        tests: [non_negative]
+      - name: velocity_units_per_day
+        tests: [non_negative]
+
+  - name: category_revenue
+    description: Revenue by category and month with monthly share.
+    tests:
+      - unique_combination:
+          arguments:
+              columns: [category_name, order_month]
+
+  - name: regional_performance
+    description: Revenue, customers, AOV and delivery KPIs per region and month.
+    tests:
+      - unique_combination:
+          arguments:
+              columns: [region_code, order_month]
+
+  - name: inventory_turnover
+    description: Stock position, 90-day turnover, days of cover and low-stock flags per product.
+    columns:
+      - name: product_key
+        tests: [unique, not_null]
+      - name: inventory_value_usd
+        tests: [not_null]
+
+  - name: warehouse_performance
+    description: Stock, throughput, shrinkage and delivery KPIs per warehouse.
+    columns:
+      - name: warehouse_key
+        tests: [unique, not_null]
+
+  - name: supplier_performance
+    description: Defect rate from receipts, return rate and revenue contribution per supplier.
+    columns:
+      - name: supplier_key
+        tests: [unique, not_null]
+      - name: defect_rate
+        tests:
+          - accepted_range:
+              arguments:
+                  min_value: 0
+                  max_value: 1
+
+  - name: shipping_performance
+    description: Delivery time distribution, on-time and exception rates by region, carrier and month.
+    columns:
+      - name: avg_delivery_days
+        tests: [non_negative]

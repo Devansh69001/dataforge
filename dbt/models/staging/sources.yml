@@ -1,0 +1,99 @@
+version: 2
+
+sources:
+  - name: warehouse
+    description: Dimensional model loaded from the gold zone by the Spark/loader pipeline.
+    database: "{{ env_var('POSTGRES_DB', 'dataforge') }}"
+    schema: warehouse
+    loaded_at_field: _loaded_at
+    freshness:
+      warn_after: {count: 36, period: hour}
+      error_after: {count: 168, period: hour}
+    tables:
+      - name: dim_date
+        loaded_at_field: null
+        freshness: null
+      - name: dim_region
+        loaded_at_field: null
+        freshness: null
+      - name: dim_category
+        loaded_at_field: null
+        freshness: null
+      - name: dim_supplier
+        loaded_at_field: null
+        freshness: null
+      - name: dim_warehouse
+        loaded_at_field: null
+        freshness: null
+      - name: dim_customer
+        loaded_at_field: null
+        freshness: null
+        columns:
+          - name: customer_key
+            tests: [unique, not_null]
+          - name: customer_id
+            tests: [unique, not_null]
+      - name: dim_product
+        loaded_at_field: null
+        freshness: null
+        columns:
+          - name: product_key
+            tests: [unique, not_null]
+          - name: product_id
+            tests: [unique, not_null]
+      - name: fact_orders
+        columns:
+          - name: order_key
+            tests: [unique, not_null]
+          - name: order_id
+            tests: [unique, not_null]
+          - name: customer_key
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                      to: source('warehouse', 'dim_customer')
+                      field: customer_key
+          - name: status
+            tests:
+              - accepted_values:
+                  arguments:
+                      values: [placed, paid, shipped, delivered, cancelled, returned]
+      - name: fact_order_items
+        columns:
+          - name: order_item_key
+            tests: [unique, not_null]
+          - name: product_key
+            tests:
+              - not_null
+              - relationships:
+                  arguments:
+                      to: source('warehouse', 'dim_product')
+                      field: product_key
+          - name: order_key
+            tests:
+              - relationships:
+                  arguments:
+                      to: source('warehouse', 'fact_orders')
+                      field: order_key
+          - name: quantity
+            tests:
+              - positive
+      - name: fact_inventory
+        columns:
+          - name: inventory_event_key
+            tests: [unique, not_null]
+          - name: event_type
+            tests:
+              - accepted_values:
+                  arguments:
+                      values: [receipt, shipment, adjustment, return, stock_count]
+      - name: fact_shipping
+        columns:
+          - name: shipment_key
+            tests: [unique, not_null]
+      - name: agg_product_daily_sales
+      - name: agg_inventory_position
+        columns:
+          - name: position_key
+            tests: [unique, not_null]

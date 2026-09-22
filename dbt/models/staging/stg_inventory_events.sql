@@ -1,0 +1,21 @@
+select
+    inventory_event_key,
+    event_id,
+    product_key,
+    product_id,
+    warehouse_key,
+    warehouse_id,
+    supplier_key,
+    supplier_id,
+    event_ts,
+    event_date,
+    event_month,
+    event_type,
+    quantity_delta,
+    on_hand_after,
+    unit_cost,
+    receipt_value_usd,
+    defective_qty,
+    counted_quantity,
+    reason
+from {{ source('warehouse', 'fact_inventory') }}
