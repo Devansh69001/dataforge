@@ -1,0 +1,187 @@
+# DataForge local platform.
+#   docker compose up -d                      -> postgres, reference-api, airflow, api, dashboard
+#   docker compose --profile spark up -d      -> + standalone Spark master/worker
+#   docker compose run --rm pipeline python scripts/generate_data.py
+#   docker compose run --rm pipeline python -m dataforge.pipeline.runner --batch 2025-11-30
+#   docker compose run --rm dbt run
+# Configuration comes from .env (copy .env.example). Never commit .env.
+
+x-app-env: &app-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-dataforge}
+  POSTGRES_USER: ${POSTGRES_USER:-dataforge}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+  DATAFORGE_DATA_DIR: /opt/dataforge/data
+  REFERENCE_API_URL: http://reference-api:8081
+  SPARK_MASTER: ${SPARK_MASTER:-local[*]}
+  SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-2g}
+  DBT_TARGET: ${DBT_TARGET:-dev}
+  DATAFORGE_SEED: ${DATAFORGE_SEED:-20240101}
+  DATAFORGE_SCALE: ${DATAFORGE_SCALE:-1.0}
+
+x-app-image: &app-image
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.app
+  image: dataforge/app:local
+  volumes:
+    - ./data:/opt/dataforge/data
+    - ./dbt:/opt/dataforge/dbt
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.airflow
+  image: dataforge/airflow:local
+  environment:
+    <<: *app-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-dataforge}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+    AIRFLOW_UID: ${AIRFLOW_UID:-50000}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./dataforge:/opt/dataforge/dataforge:ro
+    - ./dbt:/opt/dataforge/dbt
+    - ./data:/opt/dataforge/data
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dataforge}
+      POSTGRES_USER: ${POSTGRES_USER:-dataforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dataforge} -d ${POSTGRES_DB:-dataforge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  reference-api:
+    <<: *app-image
+    command: ["uvicorn", "api.reference_api:app", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      <<: *app-env
+      REFERENCE_API_FAIL_RATE: ${REFERENCE_API_FAIL_RATE:-0}
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  pipeline:
+    <<: *app-image
+    profiles: ["tools"]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      reference-api:
+        condition: service_healthy
+
+  dbt:
+    <<: *app-image
+    profiles: ["tools"]
+    working_dir: /opt/dataforge
+    entrypoint: ["dbt", "--profiles-dir", "dbt", "--project-dir", "dbt"]
+    command: ["run"]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app-image
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *app-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  dashboard:
+    <<: *app-image
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port", "8501", "--server.address", "0.0.0.0", "--server.headless", "true"]
+    environment: *app-env
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --username "${AIRFLOW_ADMIN_USER:-admin}" --password "${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}" \
+          --firstname Data --lastname Forge --role Admin --email admin@example.com || true
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  spark-master:
+    image: apache/spark:3.5.3-python3
+    profiles: ["spark"]
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master"]
+    ports:
+      - "7077:7077"
+      - "8090:8080"
+
+  spark-worker:
+    image: apache/spark:3.5.3-python3
+    profiles: ["spark"]
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: "2"
+    volumes:
+      - ./data:/opt/dataforge/data
+    depends_on:
+      - spark-master
+
+volumes:
+  pgdata:
+  airflow-logs:

@@ -1,0 +1,24 @@
+# Airflow image with the DataForge runtime (PySpark + Java) and dbt in an isolated venv.
+# dbt-core and Airflow pin conflicting versions of a few libraries, so dbt gets its own
+# virtualenv; the pipeline calls it through DBT_EXECUTABLE.
+FROM apache/airflow:2.10.5-python3.11
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless procps \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m venv /opt/dbt-venv \
+    && /opt/dbt-venv/bin/pip install --no-cache-dir "dbt-core>=1.8,<2" "dbt-postgres>=1.8,<2" \
+    && chown -R airflow:0 /opt/dbt-venv \
+    && mkdir -p /tmp/dataforge && chown airflow:0 /tmp/dataforge
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    DBT_EXECUTABLE=/opt/dbt-venv/bin/dbt \
+    SPARK_TMP_DIR=/tmp/dataforge \
+    DATAFORGE_REPO_ROOT=/opt/dataforge \
+    PYTHONPATH=/opt/dataforge \
+    DATAFORGE_LOG_FORMAT=json
+
+USER airflow
+COPY --chown=airflow:0 docker/requirements-airflow.txt /tmp/requirements-airflow.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
