@@ -191,7 +191,7 @@ jobs:
           echo "  airflow-init exit code: $rc"
           [ "$rc" = "0" ] || { echo "::error::airflow-init failed (exit $rc)"; exit 1; }
 
-      - name: Probe the published endpoints
+      - name: Probe the service health endpoints
         run: |
           set -e
           probe() {  # name url expected-substring
@@ -200,10 +200,9 @@ jobs:
             echo "$body" | head -c 200; echo
             echo "$body" | grep -q "$3" || { echo "::error::$1 response did not contain '$3'"; exit 1; }
           }
-          probe "analytics API health"  "http://localhost:8000/health"                        '"status"'
-          probe "reference API health"  "http://localhost:8081/health"                        '"status"'
-          probe "reference API regions" "http://localhost:8081/reference/regions"             '"data"'
-          probe "airflow health"        "http://localhost:8080/health"                        'metadatabase'
+          probe "analytics API health" "http://localhost:8000/health" '"status"'
+          probe "reference API health" "http://localhost:8081/health" '"status"'
+          probe "airflow health"       "http://localhost:8080/health" 'metadatabase'
           echo "-- dashboard (http://localhost:8501)"
           code=$(curl -s -o /dev/null -w '%{http_code}' --retry 10 --retry-delay 5 --retry-connrefused --max-time 30 http://localhost:8501)
           echo "  HTTP $code"; [ "$code" = "200" ] || { echo "::error::dashboard returned $code"; exit 1; }
@@ -219,6 +218,21 @@ jobs:
           docker compose run --rm pipeline python scripts/generate_data.py --scale 0.02
           docker compose run --rm pipeline python -m dataforge.pipeline.runner --batch 2025-11-30
           docker compose run --rm dbt test
+
+      - name: Probe the data-backed endpoints
+        run: |
+          set -e
+          probe() {
+            echo "-- $1 ($2)"
+            body=$(curl -fsS --max-time 30 "$2")
+            echo "$body" | head -c 200; echo
+            echo "$body" | grep -q "$3" || { echo "::error::$1 response did not contain '$3'"; exit 1; }
+          }
+          # the reference API serves generated documents, so these only exist once the
+          # generation step above has run
+          probe "reference API regions" "http://localhost:8081/reference/regions"        '"data"'
+          probe "analytics API sales"   "http://localhost:8000/metrics/sales?limit=2"    '"revenue_usd"'
+          probe "pipeline status"       "http://localhost:8000/pipeline/status"          '"success"'
 
       - name: Verify the warehouse was populated
         run: |
