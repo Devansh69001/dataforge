@@ -181,3 +181,32 @@ def test_read_silver_partition_pruning(spark, lake, silver):
     df = read_silver(spark, "orders", ["2025-11"], settings=lake)
     months = {r[0] for r in df.select("order_month").distinct().collect()}
     assert months == {"2025-11"}
+
+
+def test_partition_column_is_stored_inside_the_files(lake, silver, gold):
+    """The lake contract: a partitioned dataset keeps its partition column in the file
+    contents, not only in the directory name.
+
+    Spark's `partitionBy` strips the column and encodes it in the path, which silently
+    breaks every reader that opens an explicit file list (partition pruning, and the
+    pyarrow warehouse loader). This runs against whichever backend the host uses, so the
+    native path is covered on Linux/CI and the arrow path on Windows.
+    """
+    import pyarrow.parquet as pq
+
+    checks = [
+        (lake.silver_dir / "orders", "order_month"),
+        (lake.silver_dir / "order_items", "order_month"),
+        (lake.silver_dir / "inventory_events", "event_month"),
+        (lake.gold_dir / "fact_orders", "order_month"),
+        (lake.gold_dir / "fact_inventory", "event_month"),
+    ]
+    for root, col in checks:
+        parts = [d for d in root.iterdir() if d.is_dir() and "=" in d.name]
+        assert parts, f"{root} is not partitioned"
+        assert all(d.name.startswith(f"{col}=") for d in parts), f"{root}: unexpected partition dir naming"
+        for d in parts[:3]:
+            files = sorted(d.glob("*.parquet"))
+            assert files, f"{d} has no parquet files"
+            names = pq.read_schema(files[0]).names
+            assert col in names, f"{files[0]} lost its partition column '{col}' (only in the path)"

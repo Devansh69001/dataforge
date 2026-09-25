@@ -6,8 +6,9 @@ directory discovery to recover them.
 
 Two backends, selected automatically (Settings.effective_spark_writer):
 
-  native  Linux/macOS/Docker, or Windows with HADOOP_HOME + winutils. Spark reads the
-          directory and writes with `partitionBy` + dynamic partition overwrite.
+  native  Linux/macOS/Docker, or Windows with HADOOP_HOME + winutils. Spark writes the
+          dataset in one job, partitioned by a throwaway copy of the partition column so
+          the real column is kept inside the files (see write_parquet).
 
   arrow   Windows hosts without Hadoop native libraries (Hadoop's local FileSystem needs
           winutils.exe/hadoop.dll for directory listing and permission calls). Spark still
@@ -26,11 +27,15 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
 
 from ..config import Settings, get_settings
 from ..logging_utils import get_logger
 
 log = get_logger("spark.io")
+
+# throwaway column used only to drive `partitionBy` in the native writer (see write_parquet)
+_PART_COL = "__partition_key"
 
 
 def _files(root: Path, partition_values: list[str] | None = None) -> list[Path]:
@@ -62,9 +67,9 @@ def read_parquet(
     files = _files(root, partition_values)
     if not files:
         return None
-    if settings.effective_spark_writer == "native" and partition_values is None:
-        return spark.read.parquet(root.as_posix())
-    # explicit file list: works without Hadoop natives and doubles as partition pruning
+    # Always an explicit file list, on both backends: the files carry the partition column
+    # themselves, so directory discovery would only re-derive it from the path and risk a
+    # duplicate-column clash. Keeping one read path also keeps the platforms identical.
     return spark.read.parquet(*[f.as_posix() for f in files])
 
 
@@ -99,22 +104,30 @@ def write_parquet(
         raise ValueError("overwrite_partitions requires partition_by")
 
     if backend == "native":
-        # Spark strips partition columns from file content; the native reader restores them
-        # from the path, and tolerates files that also carry the column (arrow layout).
         # Write to a staging directory first: the input of a merge is often the very
         # dataset being replaced, and Spark refuses to overwrite a path it is reading.
         staging = root.parent / f"{root.name}__staging"
         shutil.rmtree(staging, ignore_errors=True)
+        writer = df.write.mode("overwrite")
         if partition_by:
             nulls = df.filter(df[partition_by].isNull()).count()
             if nulls:
                 raise ValueError(
                     f"{root.name}: {nulls} rows have a NULL partition key '{partition_by}'; refusing to drop them silently"
                 )
-        writer = df.write.mode("overwrite")
-        if partition_by:
-            writer = writer.partitionBy(partition_by)
+            # `partitionBy` removes the column from the file contents and encodes it only in
+            # the directory name, which breaks the module contract: readers that open an
+            # explicit file list (partition pruning, and the pyarrow warehouse loader) cannot
+            # recover it from the path. Partition by a throwaway copy instead, so the real
+            # column survives inside every file; the directories are renamed back below.
+            writer = (
+                df.withColumn(_PART_COL, F.col(partition_by)).write.mode("overwrite").partitionBy(_PART_COL)
+            )
         writer.parquet(staging.as_posix())
+        if partition_by:
+            for d in list(staging.iterdir()):
+                if d.is_dir() and d.name.startswith(f"{_PART_COL}="):
+                    d.rename(d.parent / f"{partition_by}={d.name.split('=', 1)[1]}")
         if mode == "overwrite":
             shutil.rmtree(root, ignore_errors=True)
             staging.rename(root)
