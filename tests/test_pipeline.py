@@ -45,6 +45,28 @@ def test_dag_file_is_syntactically_valid():
     assert 'dag_id="dataforge_pipeline"' in src and "retries" in src and "on_failure_callback" in src
 
 
+def test_cli_list_works_without_a_batch(capsys):
+    """--list inspects the graph and must not require --batch.
+
+    This is the Docker image's default CMD and the command the docs show first, so a
+    regression here breaks the published image and the documented entry point.
+    """
+    from dataforge.pipeline.runner import main
+
+    assert main(["--list"]) == 0
+    printed = capsys.readouterr().out
+    assert "check_sources" in printed and "publish" in printed
+    assert len([ln for ln in printed.splitlines() if ln.strip()]) == len(PIPELINE)
+
+
+def test_cli_requires_batch_when_actually_running():
+    from dataforge.pipeline.runner import main
+
+    with pytest.raises(SystemExit) as e:
+        main(["--mode", "initial"])
+    assert e.value.code == 2
+
+
 def test_tracker_records_tasks_and_survives_reload(lake):
     from dataforge.monitoring.tracker import RunTracker
 

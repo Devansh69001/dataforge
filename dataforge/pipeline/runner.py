@@ -76,7 +76,8 @@ def run_pipeline(
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Run the DataForge pipeline for one batch")
-    p.add_argument("--batch", required=True, help="batch id (YYYY-MM-DD cutoff of the raw delivery)")
+    # not argparse-required: --list inspects the graph without naming a batch
+    p.add_argument("--batch", help="batch id (YYYY-MM-DD cutoff of the raw delivery); required unless --list")
     p.add_argument("--mode", choices=["initial", "incremental", "rerun"], default=None)
     p.add_argument("--run-id", default=None)
     p.add_argument("--tasks", default=None, help="comma-separated subset of tasks")
@@ -88,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         for t in PIPELINE:
             print(f"{t.name:28s} <- {', '.join(t.upstream) or '-'}")
         return 0
+    if not a.batch:
+        p.error("--batch is required unless --list is given")
     result = run_pipeline(
         a.batch, a.mode, a.run_id, a.tasks.split(",") if a.tasks else None, a.from_task, a.force_ingest
     )

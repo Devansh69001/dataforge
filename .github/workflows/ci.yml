@@ -98,6 +98,8 @@ jobs:
         run: |
           pip install "apache-airflow==2.10.5" --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.11.txt"
           pip install -r docker/requirements-airflow.txt pytest
+          # the DAG and its tests import dataforge.*; --no-deps keeps Airflow's pins intact
+          pip install --no-deps -e .
       - name: Import the DAG
         env:
           AIRFLOW__CORE__LOAD_EXAMPLES: "false"
