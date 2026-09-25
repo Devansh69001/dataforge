@@ -43,6 +43,10 @@ ignore = ["E501", "B008", "SIM108", "UP017"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
+# `pip install -e .` only ships dataforge*; the tests also import the repo-root `api` and
+# `dashboard` packages, so put the project root on sys.path instead of relying on the
+# caller exporting PYTHONPATH.
+pythonpath = ["."]
 markers = [
     "spark: tests that start a local SparkSession (slow)",
     "db: tests that need a PostgreSQL database",
