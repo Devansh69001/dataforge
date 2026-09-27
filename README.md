@@ -421,7 +421,7 @@ and completed successfully, with both events recorded in `monitoring.schema_even
 * **dbt marts are mostly full-refresh.** Only `daily_sales_summary` is incremental; the others are small enough to rebuild, but at 100× volume several would need incremental strategies.
 * **No orchestrated backfill range.** Batches are processed one at a time; a multi-month backfill means looping the runner.
 * **Quarantine has no replay tool.** Records carry everything needed to replay, but re-submitting them after a producer fix is a manual step.
-* **Docker was not run on this machine.** Docker Desktop is not installed here, so the compose stack is validated by `docker compose config` and image builds in CI, not by a local `docker compose up`. See [Docker setup](#docker-setup).
+* **The Docker stack is verified in CI, not on the author's machine.** Docker Desktop is not installed on the development host, so `docker compose up` has never been run there. CI does run the full stack on Linux (see [Docker setup](#docker-setup)), so the compose path is genuinely exercised — just not on Windows, where it remains untested.
 
 ## Local setup
 
@@ -479,7 +479,11 @@ docker compose down -v                  # stop and remove volumes
 
 Services: `postgres` (16-alpine, with an `airflow` metadata DB), `reference-api` (the mock SOURCE 5, with `REFERENCE_API_FAIL_RATE` to simulate outages), `pipeline`/`dbt` (one-shot tools), `api`, `dashboard`, `airflow-init`/`airflow-webserver`/`airflow-scheduler`, optional `spark-master`/`spark-worker`.
 
-**Environment caveat:** Docker Desktop is not installed on the machine this project was built on, so `docker compose up` was **not** executed here. The compose file is validated with `docker compose config` and the application image is built in CI (`.github/workflows/ci.yml`, job `docker-config`). The local, non-Docker path above is the one that was run end to end.
+**What is verified:** CI runs this stack on every push (`.github/workflows/ci.yml`, job `docker-stack`). It executes `docker compose up -d --build`, waits for `postgres`, `reference-api`, `api` and `airflow-webserver` to report **healthy**, checks `dashboard` and `airflow-scheduler` are running and that `airflow-init` exited 0, probes every published endpoint, then runs the documented workflow (generate → pipeline → `dbt test`) inside the containers and asserts the warehouse and marts were populated. A representative run: pipeline `status: success` / `quality_status: pass`, 68/68 dbt tests passing, 1,845 rows in `fact_orders`.
+
+That run is also the only place the **HTTP** reference-API source is exercised — local runs use the `file://` transport, and the unit tests use a mocked one.
+
+**Caveat:** Docker Desktop is not installed on the development host, so `docker compose up` has never been run on Windows. The verification above is on Linux CI runners.
 
 ## Testing
 
