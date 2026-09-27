@@ -98,10 +98,15 @@ services:
   dbt:
     <<: *app-image
     profiles: ["tools"]
-    working_dir: /opt/dataforge
-    entrypoint: ["dbt", "--profiles-dir", "dbt", "--project-dir", "dbt"]
+    # --profiles-dir / --project-dir are subcommand options, so they cannot sit in the
+    # entrypoint ahead of the subcommand. Running from the project directory with
+    # DBT_PROFILES_DIR set keeps `docker compose run --rm dbt <any-command>` working.
+    working_dir: /opt/dataforge/dbt
+    entrypoint: ["dbt"]
     command: ["run"]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      DBT_PROFILES_DIR: /opt/dataforge/dbt
     depends_on:
       postgres:
         condition: service_healthy
